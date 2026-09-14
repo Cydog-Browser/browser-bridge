@@ -13,6 +13,16 @@
             color: #333;
             line-height: 1.6;
         }
+        .logo {
+            display: flex;
+            flex-flow: row;
+            height: 50px;
+            width: auto;
+            justify-content: start;
+        }
+        .logo h1 {
+            margin: auto 5px;
+        }
         h1 { font-size: 1.5rem; color: #111; }
         h2 { font-size: 1.2rem; margin-top: 20px; color: #444; }
         pre {
@@ -32,35 +42,70 @@
             border-radius: 4px;
             cursor: pointer;
             margin-top: 10px;
+            margin-right: 10px;
         }
         button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+            margin-bottom: 15px;
+        }
+        .step-badge {
+            background: #e9ecef;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            border-left: 4px solid #6c757d;
+        }
+        .step-badge.running { border-left-color: #ffc107; background: #fff9db; }
+        .step-badge.success { border-left-color: #28a745; background: #d4edda; }
+        .step-badge.failed { border-left-color: #dc3545; background: #f8d7da; }
         #log {
             margin-top: 20px;
-            background: #fff;
-            border: 1px solid #ccc;
-            padding: 10px;
-            height: 150px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border: 1px solid #333;
+            padding: 12px;
+            height: 200px;
             overflow-y: auto;
             font-family: monospace;
             font-size: 0.85rem;
             border-radius: 4px;
+            white-space: pre-wrap;
+            word-break: break-all;
         }
     </style>
 </head>
 <body>
 
-    <h1>Cydog File System Integration</h1>
-    <p>This page demonstrates how your web frontend interacts with the browser-bridge file picker on the new Cydog Browser via the injected <code>window.showDirectoryPicker()</code> polyfill and the <code>FileSystemBridge</code>.</p>
+    <div class="logo">
+        <img src="https://cydogbrowser.com/static/images/logo.png" alt="Cydog Browser Logo">
+        <h1>Cydog File System Integration</h1>
+    </div>
+    <p>This page demonstrates how your web frontend interacts with the browser-bridge file picker and file writer on the new Cydog Browser via the injected <code>window.showDirectoryPicker()</code> polyfill and the <code>FileSystemBridge</code>.</p>
 
-    <h2>1. Action Trigger</h2>
-    <p>Clicking the button below invokes the native folder selection flow and reads contents asynchronously.</p>
+    <h2>1. Action Triggers</h2>
+    <p>Clicking the buttons below invokes the native folder selection flow, directory iteration, and the new write file method.</p>
     <button id="pickFolderBtn">Select Directory</button>
+    <button id="testWriteBtn" style="background-color: #28a745;">Write Test File</button>
+
+    <div class="steps">
+        <div id="badge-env" class="step-badge">1. Bridge Injection</div>
+        <div id="badge-picker" class="step-badge">2. Workspace Handle</div>
+        <div id="badge-iter" class="step-badge">3. Directory Iteration</div>
+        <div id="badge-lazy" class="step-badge">4. Lazy File Read</div>
+        <div id="badge-write" class="step-badge">5. Write File Method</div>
+    </div>
 
     <h2>2. Execution Log</h2>
     <div id="log">Ready to process folder requests...</div>
 
     <h2>3. Implementation Snippet</h2>
-    <p>Your JavaScript implementation uses standard File System Access API syntax:</p>
+    <p>Your JavaScript implementation uses standard File System Access API syntax alongside the new bridge write method:</p>
     <pre><code>async function importFolder() {
     try {
         // Triggers the Flutter native file picker via polyfill
@@ -74,7 +119,6 @@
                 
                 // Fetch the actual file blob data on demand
                 const fileBlob = await entry.getFile();
-                // Process your fileBlob here (e.g., read text, render image, store in IndexedDB)
             } else if (entry.kind === 'directory') {
                 logMessage(`Found subdirectory: ${entry.name}`);
             }
@@ -84,48 +128,167 @@
     }
 }
 
-document.getElementById('pickFolderBtn').addEventListener('click', importFolder);
+// New Write File Method Implementation via Bridge (Fallback safe)
+if (window.__CydogBridge && typeof window.__CydogBridge.writeFile !== 'function') {
+    window.__CydogBridge.writeFile = async function(filePath, textData) {
+        const domain = window.location.hostname || window.location.protocol || 'local_app';
+        return await window.__CydogBridge.request('writeFile', {
+            path: filePath,
+            text: textData,
+            domain: domain
+        });
+    };
+}
     </code></pre>
 
     <script>
-        function logMessage(msg) {
+        function logMessage(msg, type = 'info') {
             const logDiv = document.getElementById('log');
-            logDiv.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+            if (!logDiv) return;
+            const time = new Date().toLocaleTimeString();
+            let color = '#d4d4d4';
+            if (type === 'success') color = '#4ec9b0';
+            if (type === 'error') color = '#f44747';
+            if (type === 'warn') color = '#cca700';
+            
+            logDiv.innerHTML += `<div style="color: ${color};">[${time}] ${msg}</div>`;
             logDiv.scrollTop = logDiv.scrollHeight;
         }
+
+        function setStepStatus(stepId, status) {
+            const el = document.getElementById(stepId);
+            if (!el) return;
+            el.className = `step-badge ${status}`;
+        }
+
+        // Extend bridge polyfill support to handle 'writeFile' actions natively if not already present
+        if (window.__CydogBridge && typeof window.__CydogBridge.writeFile !== 'function') {
+            window.__CydogBridge.writeFile = async function(filePath, textData) {
+                const domain = window.location.hostname || window.location.protocol || 'local_app';
+                return await window.__CydogBridge.request('writeFile', {
+                    path: filePath,
+                    text: textData,
+                    domain: domain
+                });
+            };
+        }
+
+        document.getElementById('testWriteBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('testWriteBtn');
+            btn.disabled = true;
+            setStepStatus('badge-write', 'running');
+            logMessage("Starting file write test sequence...");
+
+            try {
+                if (typeof window.showDirectoryPicker !== 'function') {
+                    throw new Error("window.showDirectoryPicker is not available.");
+                }
+
+                logMessage("Prompting user to choose target folder...");
+                const dirHandle = await window.showDirectoryPicker();
+                logMessage(`Selected target directory: "${dirHandle.name}" at path: "${dirHandle._path}"`);
+
+                const fileName = `test_diagnostic_${Date.now()}.txt`;
+                const targetFilePath = `${dirHandle._path}/${fileName}`;
+                const fileContent = `Hello CydogWorkspace! Written at ${new Date().toISOString()} from origin: ${window.location.href}`;
+
+                logMessage(`Attempting to write file to: ${targetFilePath}`);
+
+                // Cross-compatible write check: uses bridge if available, otherwise attempts standard File System Access API WritableStream if supported
+                if (window.__CydogBridge && typeof window.__CydogBridge.request === 'function') {
+                    await window.__CydogBridge.request('writeFile', {
+                        path: targetFilePath,
+                        text: fileContent,
+                        domain: window.location.hostname || window.location.protocol || 'local_app'
+                    });
+                } else if (typeof dirHandle.getFileHandle === 'function') {
+                    const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(fileContent);
+                    await writable.close();
+                } else {
+                    throw new Error("No compatible file writing mechanism found for this environment.");
+                }
+
+                setStepStatus('badge-write', 'success');
+                logMessage(`Successfully wrote test file: "${fileName}"!`, "success");
+
+            } catch (err) {
+                setStepStatus('badge-write', 'failed');
+                logMessage(`File write failed: ${err.message || err}`, "error");
+            } finally {
+                btn.disabled = false;
+            }
+        });
 
         async function initDemo() {
             const btn = document.getElementById('pickFolderBtn');
             
             btn.addEventListener('click', async () => {
+                const btnElem = document.getElementById('pickFolderBtn');
+                btnElem.disabled = true;
+
+                setStepStatus('badge-env', 'running');
+                setStepStatus('badge-picker', '');
+                setStepStatus('badge-iter', '');
+                setStepStatus('badge-lazy', '');
+
+                logMessage("Requesting directory handle...");
+                
                 try {
-                    logMessage("Requesting directory handle...");
-                    
                     if (typeof window.showDirectoryPicker !== 'function') {
-                        logMessage("Error: showDirectoryPicker polyfill is not loaded.");
-                        return;
+                        throw new Error("window.showDirectoryPicker polyfill is not loaded.");
                     }
+                    setStepStatus('badge-env', 'success');
+                    logMessage("Bridge environment verified.", "success");
 
+                    setStepStatus('badge-picker', 'running');
                     const dirHandle = await window.showDirectoryPicker();
-                    logMessage(`Success! Root directory acquired: ${dirHandle.name}`);
+                    setStepStatus('badge-picker', 'success');
+                    logMessage(`Success! Root directory acquired: ${dirHandle.name}`, "success");
 
+                    setStepStatus('badge-iter', 'running');
                     logMessage("Iterating directory values...");
                     let count = 0;
+                    let firstFileHandle = null;
                     
                     for await (const entry of dirHandle.values()) {
                         count++;
                         if (entry.kind === 'file') {
                             logMessage(`- File: ${entry.name} [Size: ${entry.size} bytes]`);
-                            // Example of lazy loading file data
-                            // const fileData = await entry.getFile();
+                            if (!firstFileHandle) firstFileHandle = entry;
                         } else {
                             logMessage(`- Subdir: ${entry.name}`);
                         }
                     }
-                    logMessage(`Finished iteration. Total entries found: ${count}`);
+                    setStepStatus('badge-iter', 'success');
+                    logMessage(`Finished iteration. Total entries found: ${count}`, "success");
+
+                    setStepStatus('badge-lazy', 'running');
+                    if (firstFileHandle) {
+                        logMessage(`Testing lazy content loading for "${firstFileHandle.name}"...`);
+                        const fileObj = await firstFileHandle.getFile();
+                        const textContent = await fileObj.text();
+                        const snippet = textContent.length > 50 ? textContent.substring(0, 50) + "..." : textContent;
+                        setStepStatus('badge-lazy', 'success');
+                        logMessage(`Successfully read ${fileObj.size} bytes. Preview: "${snippet}"`, "success");
+                    } else {
+                        setStepStatus('badge-lazy', 'success');
+                        logMessage("Skipped lazy read: No files found.", "warn");
+                    }
 
                 } catch (error) {
-                    logMessage(`Operation failed/cancelled: ${error.message}`);
+                    logMessage(`Operation failed/cancelled: ${error.message}`, "error");
+                    ['badge-env', 'badge-picker', 'badge-iter', 'badge-lazy'].forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el && el.classList.contains('net')) { // fallback check
+                        }
+                        if (el && el.classList.contains('running')) {
+                            el.className = 'step-badge failed';
+                        }
+                    });
+                } finally {
+                    btnElem.disabled = false;
                 }
             });
         }

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cydog File System Access Bridge: Best Practices</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #0f1117;
+            color: #d1d5db;
+            line-height: 1.6;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        header {
+            border-bottom: 1px solid #374151;
+            padding-bottom: 24px;
+            margin-bottom: 36px;
+        }
+
+        h1 {
+            font-size: 2rem;
+            color: #ffffff;
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+
+        p.subtitle {
+            font-size: 1.05rem;
+            color: #9ca3af;
+        }
+
+        section {
+            margin-bottom: 40px;
+        }
+
+        h2 {
+            font-size: 1.35rem;
+            color: #ffffff;
+            margin-bottom: 16px;
+            border-left: 4px solid #10b981;
+            padding-left: 12px;
+        }
+
+        h3 {
+            font-size: 1.1rem;
+            color: #f3f4f6;
+            margin: 20px 0 10px 0;
+        }
+
+        p {
+            margin-bottom: 14px;
+            color: #d1d5db;
+        }
+
+        ul, ol {
+            margin-left: 24px;
+            margin-bottom: 16px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        pre {
+            background-color: #1a202c;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.85rem;
+            color: #e2e8f0;
+            margin: 16px 0;
+        }
+
+        code {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            background-color: #1f2937;
+            color: #34d399;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+
+        pre code {
+            background-color: transparent;
+            color: inherit;
+            padding: 0;
+        }
+
+        .callout {
+            background-color: #1f2937;
+            border-left: 4px solid #2563eb;
+            padding: 16px;
+            border-radius: 0 8px 8px 0;
+            margin: 20px 0;
+        }
+
+        footer {
+            border-top: 1px solid #374151;
+            padding-top: 20px;
+            text-align: center;
+            font-size: 0.85rem;
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>Cydog File System Bridge Development Guide</h1>
+            <p class="subtitle">Best practices for optimizing memory consumption, managing handle lifecycles, and streaming files via the Cydog File System Access Bridge.</p>
+        </header>
+
+        <section>
+            <h2>1. Memory Management & Lazy Handle Indexing</h2>
+            <p>When bridging native operating system files to the Cydog Browser file system, never read full file contents into memory during the selection phase. Always decouple path indexing from data reading.</p>
+            
+            <ul>
+                <li><strong>Store File References, Not Payloads:</strong> Retain the browser-provided <code>File</code> object handle rather than calling <code>FileReader.readAsText()</code> or <code>File.arrayBuffer()</code> up front.</li>
+                <li><strong>On-Demand Stream Extraction:</strong> Extract file contents only immediately before writing a file to Cydog Browser storage.</li>
+                <li><strong>Explicit Reference Cleanup:</strong> Nullify or clear handle arrays immediately after completing write queues so browser Garbage Collection (GC) can instantly reclaim heap space.</li>
+            </ul>
+
+            <pre><code>// CORRECT: Store lightweight handle metadata only
+const queue = Array.from(input.files).map(file => ({
+    path: file.webkitRelativePath || file.name,
+    ref: file // Keeps pointer, leaves raw bytes on disk
+}));
+
+// INCORRECT: Pre-loading contents into memory crashes the browser on large sets
+const dangerousQueue = await Promise.all(
+    Array.from(input.files).map(async f => ({ path: f.name, data: await f.text() }))
+);</code></pre>
+        </section>
+
+        <section>
+            <h2>2. Asynchronous Thread Yielding</h2>
+            <p>Sequential loops operating on filesystem promises can block the main JavaScript UI thread and prevent browser Garbage Collection. Yield control back to the event loop on every write iteration.</p>
+
+            <div class="callout">
+                <strong>Rule of Thumb:</strong> Always insert an asynchronous macro-task yield (e.g., <code>await new Promise(r => setTimeout(r, 0))</code>) at the end of each item write block to prevent thread lock and out-of-memory browser crashes.
+            </div>
+
+            <pre><code>for (let i = 0; i < queue.length; i++) {
+    const item = queue[i];
+
+    // Read single file into memory scope
+    const content = await item.ref.text();
+
+    // Perform bridge write
+    await writeToCydogBridge(item.path, content);
+
+    // Yield control to allow Garbage Collector & UI DOM updates
+    await new Promise(resolve => setTimeout(resolve, 0));
+}</code></pre>
+        </section>
+
+        <section>
+            <h2>3. Cydog Bridge Request Standardization</h2>
+            <p>Ensure your application safely normalizes interaction with <code>window.__CydogBridge</code> and fallback Native File System Access handles (<code>FileSystemDirectoryHandle</code>).</p>
+
+            <pre><code>// Safe bridge invocation wrapper
+async function writeToCydogBridge(targetPath, fileContent) {
+    const domain = window.location.hostname || window.location.protocol || 'local_app';
+
+    if (window.__CydogBridge && typeof window.__CydogBridge.request === 'function') {
+        // Native Cydog Bridge implementation
+        return await window.__CydogBridge.request('writeFile', {
+            path: targetPath,
+            text: fileContent,
+            domain: domain
+        });
+    } else {
+        throw new Error("Cydog File System Bridge interface unavailable.");
+    }
+}</code></pre>
+        </section>
+
+        <section>
+            <h2>4. Nested Directory Traversal & Handle Safety</h2>
+            <p>When working with directory handles returned from <code>window.showDirectoryPicker()</code>, recursively build subdirectories using `{ create: true }` to guarantee path integrity without asking users to type directory strings.</p>
+
+            <pre><code>async function resolveDirectoryTree(rootHandle, relativePath) {
+    const pathParts = relativePath.split('/');
+    const fileName = pathParts.pop();
+    let currentDir = rootHandle;
+
+    // Skip root prefix match if directory name matches root
+    let startIndex = (pathParts.length > 0 && pathParts[0] === rootHandle.name) ? 1 : 0;
+
+    for (let i = startIndex; i < pathParts.length; i++) {
+        currentDir = await currentDir.getDirectoryHandle(pathParts[i], { create: true });
+    }
+
+    return await currentDir.getFileHandle(fileName, { create: true });
+}</code></pre>
+        </section>
+
+        <section>
+            <h2>5. Error Resilience & Granular Progress Tracking</h2>
+            <p>Protect bulk file bridge transfers from failing completely due to isolated file permission or parsing errors.</p>
+
+            <ul>
+                <li><strong>Per-File Exception Isolation:</strong> Wrap individual file transfers in isolated <code>try/catch</code> blocks so one corrupt file does not break the whole sequence.</li>
+                <li><strong>Granular Progress Feedback:</strong> Update percentage indicators based on completed items vs total items rather than byte length to reduce DOM recalculation overhead.</li>
+                <li><strong>Cancellation States:</strong> Check an active flag prior to reading the next item reference in loop sequences to support responsive user cancellations.</li>
+            </ul>
+        </section>
+
+        <footer>
+            <p>Cydog Browser Engine Integration Guidelines</p>
+        </footer>
+    </div>
+
+</body>
+</html>

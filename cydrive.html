@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cydog Hard Drive Importer</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #0f1117;
+            color: #f3f4f6;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            max-width: 480px;
+            transform: translateY(-8vh);
+        }
+
+        .logo {
+            width: 80px;
+            height: auto;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 25px;
+            letter-spacing: -0.02em;
+        }
+
+        .action-btn {
+            background-color: #2563eb;
+            color: #ffffff;
+            border: none;
+            padding: 16px 32px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+            max-width: 320px;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+            margin-bottom: 30px;
+        }
+
+        .action-btn:hover {
+            background-color: #1d4ed8;
+        }
+
+        .action-btn:active {
+            transform: scale(0.98);
+        }
+
+        .action-btn:disabled {
+            background-color: #374151;
+            color: #9ca3af;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        /* Middle Elevate Progress & Status Section */
+        .progress-container {
+            width: 100%;
+            max-width: 420px;
+        }
+
+        .status-text {
+            font-size: 0.875rem;
+            color: #9ca3af;
+            margin-bottom: 10px;
+            min-height: 20px;
+            word-break: break-all;
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 12px;
+            background-color: #1f2937;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid #374151;
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background-color: #10b981;
+            transition: width 0.1s ease-in-out;
+        }
+
+        /* Modal Overlays */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.75);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-card {
+            background-color: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 440px;
+            width: 100%;
+            text-align: left;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-card h2 {
+            font-size: 1.25rem;
+            color: #ffffff;
+            margin-bottom: 12px;
+        }
+
+        .modal-card p {
+            font-size: 0.95rem;
+            color: #d1d5db;
+            line-height: 1.5;
+            margin-bottom: 20px;
+        }
+
+        .modal-btn {
+            width: 100%;
+            background-color: #2563eb;
+            color: #ffffff;
+            border: none;
+            padding: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .modal-btn:hover {
+            background-color: #1d4ed8;
+        }
+
+        @media (max-width: 480px) {
+            h1 { font-size: 1.4rem; }
+            .action-btn { padding: 14px 24px; font-size: 1rem; }
+            .main-container { transform: translateY(-5vh); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="main-container">
+        <img src="https://cydogbrowser.com/static/images/logo.png" alt="Cydog Browser Logo" class="logo">
+        <h1>Cydog Hard Drive Importer</h1>
+        <button id="importBtn" class="action-btn">Start Import Process</button>
+        <!-- Standard file input allowing multi-file selection across mobile & desktop -->
+        <input type="file" id="nativeFileInput" multiple style="display: none;">
+
+        <div class="progress-container">
+            <div id="statusText" class="status-text">Ready to initiate import...</div>
+            <div class="progress-track">
+                <div id="progressFill" class="progress-fill"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notice Modal -->
+    <div id="noticeModal" class="modal-overlay">
+        <div class="modal-card">
+            <h2>Cydog File Bridge Utility</h2>
+            <p>This utility bridges native device storage (iOS, Android, Windows, macOS) with Cydog Browser. Select multiple files or folder contents from your file manager to begin.</p>
+            <button id="acknowledgeBtn" class="modal-btn">I Understand</button>
+        </div>
+    </div>
+
+    <!-- Cydog Workspace Selector Modal (No manual typing permitted) -->
+    <div id="destinationModal" class="modal-overlay">
+        <div class="modal-card">
+            <h2>Select Cydog Workspace</h2>
+            <p>Native files indexed. Click below to trigger Cydog Browser's directory picker and select your target destination folder.</p>
+            <button id="importToWorkspaceBtn" class="modal-btn" style="background-color: #10b981;">Import to Workspace</button>
+        </div>
+    </div>
+
+    <script>
+        const importBtn = document.getElementById('importBtn');
+        const nativeFileInput = document.getElementById('nativeFileInput');
+        const statusText = document.getElementById('statusText');
+        const progressFill = document.getElementById('progressFill');
+
+        const noticeModal = document.getElementById('noticeModal');
+        const acknowledgeBtn = document.getElementById('acknowledgeBtn');
+
+        const destinationModal = document.getElementById('destinationModal');
+        const importToWorkspaceBtn = document.getElementById('importToWorkspaceBtn');
+
+        let memoryFileReferences = [];
+
+        // Enable folder selection attribute specifically on Desktop browsers
+        if (!/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+            nativeFileInput.setAttribute('webkitdirectory', '');
+        }
+
+        if (window.__CydogBridge && typeof window.__CydogBridge.writeFile !== 'function') {
+            window.__CydogBridge.writeFile = async function(filePath, textData) {
+                const domain = window.location.hostname || window.location.protocol || 'local_app';
+                return await window.__CydogBridge.request('writeFile', {
+                    path: filePath,
+                    text: textData,
+                    domain: domain
+                });
+            };
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            noticeModal.classList.add('active');
+        });
+
+        acknowledgeBtn.addEventListener('click', () => {
+            noticeModal.classList.remove('active');
+        });
+
+        // Step 1: Trigger native OS multi-file/directory selection
+        importBtn.addEventListener('click', () => {
+            importBtn.disabled = true;
+            memoryFileReferences = [];
+            updateProgress(0, "Opening native OS file picker...");
+            nativeFileInput.value = '';
+            nativeFileInput.click();
+        });
+
+        // Index file handles and parse paths without reading file contents into RAM
+        nativeFileInput.addEventListener('change', (event) => {
+            const files = event.target.files;
+            if (!files || files.length === 0) {
+                updateProgress(0, "No files selected from native storage.");
+                importBtn.disabled = false;
+                return;
+            }
+
+            memoryFileReferences = [];
+            const count = files.length;
+
+            updateProgress(0, `Parsing path data for ${count} file(s)...`);
+
+            for (let i = 0; i < count; i++) {
+                const file = files[i];
+                // Extract full webkit relative path if folder structure exists, or fallback to file name
+                const resolvedPath = file.webkitRelativePath || file.name;
+
+                memoryFileReferences.push({
+                    path: resolvedPath,
+                    fileRef: file
+                });
+            }
+
+            updateProgress(100, `Indexed ${count} file(s). Select Cydog target workspace.`);
+            destinationModal.classList.add('active');
+        });
+
+        // Step 2: Open Cydog directory picker and stream files sequentially
+        importToWorkspaceBtn.addEventListener('click', async () => {
+            destinationModal.classList.remove('active');
+
+            try {
+                if (typeof window.showDirectoryPicker !== 'function') {
+                    throw new Error("Cydog Browser directory picker (window.showDirectoryPicker) is not available.");
+                }
+
+                updateProgress(0, "Opening Cydog Browser directory picker...");
+                const cydogDirHandle = await window.showDirectoryPicker();
+                
+                updateProgress(0, `Destination selected: "${cydogDirHandle.name}". Starting transfer...`);
+
+                let completed = 0;
+                const total = memoryFileReferences.length;
+
+                for (const item of memoryFileReferences) {
+                    const targetFilePath = cydogDirHandle._path 
+                        ? `${cydogDirHandle._path}/${item.path}` 
+                        : `${cydogDirHandle.name}/${item.path}`;
+
+                    updateProgress((completed / total) * 100, `Importing (${completed + 1}/${total}): ${item.path}`);
+
+                    // Lazy load content on demand to ensure mobile stability and prevent RAM crashes
+                    const textContent = await item.fileRef.text();
+
+                    if (window.__CydogBridge && typeof window.__CydogBridge.request === 'function') {
+                        await window.__CydogBridge.request('writeFile', {
+                            path: targetFilePath,
+                            text: textContent,
+                            domain: window.location.hostname || window.location.protocol || 'local_app'
+                        });
+                    } else if (typeof cydogDirHandle.getFileHandle === 'function') {
+                        await writeFileToHandle(cydogDirHandle, item.path, textContent);
+                    } else {
+                        throw new Error("No Cydog writing interface available.");
+                    }
+
+                    completed++;
+
+                    // Yield event loop to ensure UI updates and permit mobile garbage collection
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                    updateProgress((completed / total) * 100, `Imported (${completed}/${total}): ${item.path}`);
+                }
+
+                memoryFileReferences = []; // Clear file references
+                updateProgress(100, `Successfully transferred ${total} file(s) into Cydog Browser!`);
+
+            } catch (err) {
+                updateProgress(0, `Transfer failed/canceled: ${err.message}`);
+            } finally {
+                importBtn.disabled = false;
+            }
+        });
+
+        async function writeFileToHandle(rootHandle, relativePath, content) {
+            const pathParts = relativePath.split('/');
+            const fileName = pathParts.pop();
+            let currentDir = rootHandle;
+
+            let startIndex = 0;
+            if (pathParts.length > 0 && pathParts[0] === rootHandle.name) {
+                startIndex = 1;
+            }
+
+            for (let i = startIndex; i < pathParts.length; i++) {
+                currentDir = await currentDir.getDirectoryHandle(pathParts[i], { create: true });
+            }
+
+            const fileHandle = await currentDir.getFileHandle(fileName, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(content);
+            await writable.close();
+        }
+
+        function updateProgress(percentage, status) {
+            progressFill.style.width = `${Math.min(100, Math.max(0, percentage))}%`;
+            statusText.innerText = status;
+        }
+    </script>
+</body>
+</html>
